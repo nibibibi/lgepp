@@ -57,6 +57,10 @@ private:
     VkDebugUtilsMessengerEXT debugMessenger;
     
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+    // Logical device
+    VkDevice device;
+    
+    VkQueue graphicsQueue;
 
     void initWindow() {
         glfwInit();
@@ -71,6 +75,7 @@ private:
         createInstance();
         setupDebugMessenger();
         pickPhysicalDevice();
+        createLogicalDevice();
     }
     
     void pickPhysicalDevice() {
@@ -154,6 +159,43 @@ private:
         
         return indices;
     }
+    
+    void createLogicalDevice() {
+        QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
+        queueCreateInfo.queueCount = 1;
+        
+        float queuePriority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+        
+        VkPhysicalDeviceFeatures deviceFeatures{};
+        
+        VkDeviceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        
+        createInfo.pQueueCreateInfos = &queueCreateInfo;
+        createInfo.queueCreateInfoCount = 1;
+
+        createInfo.pEnabledFeatures = &deviceFeatures;
+        
+        createInfo.enabledExtensionCount = 0;
+
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        } else {
+            createInfo.enabledLayerCount = 0;
+        }
+        
+        if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create logical device!");
+        }
+        
+        vkGetDeviceQueue(device, indices.graphicsFamily.value(), 0, &graphicsQueue);
+    }
 
 
     void mainLoop() {
@@ -166,11 +208,9 @@ private:
         if (enableValidationLayers) {
             DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
         }
-
+        vkDestroyDevice(device, nullptr);
         vkDestroyInstance(instance, nullptr);
-
         glfwDestroyWindow(window);
-
         glfwTerminate();
     }
 
@@ -196,7 +236,6 @@ private:
         
 
         std::vector<const char*> extensions = getRequiredExtensions();
-        
 #ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
         extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
         createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
