@@ -8,6 +8,10 @@
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include <map>
+
+// c++17 thing
+#include <optional>
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -51,6 +55,8 @@ private:
 
     VkInstance instance;
     VkDebugUtilsMessengerEXT debugMessenger;
+    
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
 
     void initWindow() {
         glfwInit();
@@ -64,7 +70,91 @@ private:
     void initVulkan() {
         createInstance();
         setupDebugMessenger();
+        pickPhysicalDevice();
     }
+    
+    void pickPhysicalDevice() {
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+        
+        if (deviceCount == 0) {
+            throw std::runtime_error("Failed to find GPUs with Vulkan support =(");
+        }
+        
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+        
+        std::multimap<int, VkPhysicalDevice> candidates;
+        
+        for (const auto& device: devices) {
+            int score = rateDeviceSuitability(device);
+            candidates.insert(std::make_pair(score, device));
+        }
+        
+        if (candidates.rbegin()->first > 0) {
+            physicalDevice = candidates.rbegin()->second;
+        } else {
+            std::runtime_error("Failed to find a suitable GPU =(");
+        }
+    }
+    
+    bool rateDeviceSuitability(VkPhysicalDevice device) {
+        VkPhysicalDeviceProperties deviceProperties;
+        vkGetPhysicalDeviceProperties(device, &deviceProperties);
+        
+        VkPhysicalDeviceFeatures deviceFeatures;
+        vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+        
+        int score = 0;
+        
+        if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            score += 1000;
+        }
+        
+        score += deviceProperties.limits.maxImageDimension2D;
+        
+        std::clog << deviceProperties.deviceName << " was rated " << score << std::endl;
+        
+        if (!findQueueFamilies(device).isComplete()) {
+            return 0;
+        }
+        
+        return score;
+    }
+    
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphicsFamily;
+        
+        bool isComplete() {
+            return graphicsFamily.has_value();
+        }
+    };
+
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+        QueueFamilyIndices indices;
+        
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+        
+        int i = 0;
+        for (const auto& queueFamily : queueFamilies) {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indices.graphicsFamily = i;
+            }
+            
+            if (indices.isComplete()) {
+                break;
+            }
+
+            i++;
+        }
+        
+        return indices;
+    }
+
 
     void mainLoop() {
         while (!glfwWindowShouldClose(window)) {
@@ -106,6 +196,7 @@ private:
         
 
         std::vector<const char*> extensions = getRequiredExtensions();
+        
 #ifdef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
         extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
         createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
